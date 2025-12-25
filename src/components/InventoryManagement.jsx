@@ -5,8 +5,12 @@ import '../styles/InventoryManagement.css'
 export default function InventoryManagement() {
   const [stockLevels, setStockLevels] = useState([])
   const [ingredients, setIngredients] = useState([])
+  const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAddStock, setShowAddStock] = useState(false)
+  const [selectedStock, setSelectedStock] = useState(null)
+  const [editMode, setEditMode] = useState(false)
+  const [stockEntries, setStockEntries] = useState([])
   const [newStock, setNewStock] = useState({
     ingredient_id: '',
     container_type: '',
@@ -20,17 +24,63 @@ export default function InventoryManagement() {
   useEffect(() => {
     fetchStockLevels()
     fetchIngredients()
+    fetchCategories()
   }, [])
+
+  const fetchCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('category_name')
+
+      if (error) throw error
+      setCategories(data || [])
+    } catch (error) {
+      console.error('Error fetching categories:', error)
+    }
+  }
 
   const fetchStockLevels = async () => {
     try {
-      const { data, error } = await supabase
+      // First, get stock levels from the view
+      const { data: stockData, error: stockError } = await supabase
         .from('current_stock_levels')
         .select('*')
         .order('ingredient_name')
 
-      if (error) throw error
-      setStockLevels(data || [])
+      if (stockError) {
+        console.error('Stock error:', stockError)
+        throw stockError
+      }
+
+      // Then get ingredients with categories
+      const { data: ingredientsData, error: ingredientsError } = await supabase
+        .from('ingredients')
+        .select(`
+          ingredient_id,
+          category_id,
+          categories (
+            category_name
+          )
+        `)
+
+      if (ingredientsError) {
+        console.error('Ingredients error:', ingredientsError)
+        throw ingredientsError
+      }
+
+      // Merge the data
+      const mergedData = stockData.map(stock => {
+        const ingredient = ingredientsData.find(ing => ing.ingredient_id === stock.ingredient_id)
+        return {
+          ...stock,
+          ingredients: ingredient
+        }
+      })
+
+      console.log('Merged stock data:', mergedData)
+      setStockLevels(mergedData)
     } catch (error) {
       console.error('Error fetching stock levels:', error)
     } finally {
@@ -42,7 +92,12 @@ export default function InventoryManagement() {
     try {
       const { data, error } = await supabase
         .from('ingredients')
-        .select('*')
+        .select(`
+          *,
+          categories (
+            category_name
+          )
+        `)
         .order('ingredient_name')
 
       if (error) throw error
@@ -52,28 +107,82 @@ export default function InventoryManagement() {
     }
   }
 
+  const getSelectedIngredient = () => {
+    return ingredients.find(ing => ing.ingredient_id === parseInt(newStock.ingredient_id))
+  }
+
+  const getSelectedCategory = () => {
+    const ingredient = getSelectedIngredient()
+    return ingredient?.categories?.category_name || ''
+  }
+
+  const needsContainerType = () => {
+    const category = getSelectedCategory()
+    // Meats and Vegetables don't need container type
+    return !['Meats', 'Vegetables'].includes(category)
+  }
+
   const addStock = async () => {
-    if (!newStock.ingredient_id || !newStock.container_type || !newStock.quantity_containers || 
-        !newStock.container_size || !newStock.container_price) {
+    const selectedIngredient = getSelectedIngredient()
+    const requiresContainer = needsContainerType()
+
+    // Validation
+    if (!newStock.ingredient_id || !newStock.quantity_containers || !newStock.container_price) {
       alert('Please fill in all required fields')
       return
     }
 
+    if (requiresContainer && (!newStock.container_type || !newStock.container_size)) {
+      alert('Please specify container type and size')
+      return
+    }
+
     try {
-      const { error } = await supabase
+      let containerType, containerSize, containerPrice, quantityContainers
+
+      if (requiresContainer) {
+        // For items with containers (condiments, sauces, liquids)
+        containerType = newStock.container_type
+        containerSize = parseFloat(newStock.container_size)
+        containerPrice = parseFloat(newStock.container_price)
+        quantityContainers = parseInt(newStock.quantity_containers)
+      } else {
+        // For meats and vegetables (per kg)
+        containerType = 'kg'
+        containerSize = 1 // 1 kg per "container"
+        containerPrice = parseFloat(newStock.container_price) // Price per kg
+        quantityContainers = parseFloat(newStock.quantity_containers) // Number of kg
+      }
+      
+      console.log('Inserting stock:', {
+        ingredient_id: parseInt(newStock.ingredient_id),
+        container_type: containerType,
+        quantity_containers: quantityContainers,
+        container_size: containerSize,
+        container_price: containerPrice,
+        supplier: newStock.supplier,
+        purchase_date: newStock.purchase_date
+      })
+
+      const { data, error } = await supabase
         .from('stock_ingredients')
         .insert({
           ingredient_id: parseInt(newStock.ingredient_id),
-          container_type: newStock.container_type,
-          quantity_containers: parseInt(newStock.quantity_containers),
-          container_size: parseFloat(newStock.container_size),
-          container_price: parseFloat(newStock.container_price),
+          container_type: containerType,
+          quantity_containers: quantityContainers,
+          container_size: containerSize,
+          container_price: containerPrice,
           supplier: newStock.supplier,
           purchase_date: newStock.purchase_date
         })
+        .select()
 
-      if (error) throw error
+      if (error) {
+        console.error('Insert error:', error)
+        throw error
+      }
 
+      console.log('Stock added:', data)
       alert('Stock added successfully!')
       setShowAddStock(false)
       setNewStock({
@@ -85,10 +194,12 @@ export default function InventoryManagement() {
         supplier: '',
         purchase_date: new Date().toISOString().split('T')[0]
       })
-      fetchStockLevels()
+      
+      // Refresh stock levels
+      await fetchStockLevels()
     } catch (error) {
       console.error('Error adding stock:', error)
-      alert('Error adding stock')
+      alert(`Error adding stock: ${error.message}`)
     }
   }
 
@@ -98,133 +209,514 @@ export default function InventoryManagement() {
     return 'in-stock'
   }
 
+  const fetchStockEntries = async (ingredientId) => {
+    try {
+      const { data, error } = await supabase
+        .from('stock_ingredients')
+        .select('*')
+        .eq('ingredient_id', ingredientId)
+        .order('purchase_date', { ascending: false })
+
+      if (error) throw error
+      setStockEntries(data || [])
+    } catch (error) {
+      console.error('Error fetching stock entries:', error)
+    }
+  }
+
+  const handleStockClick = async (stock) => {
+    setSelectedStock(stock)
+    setEditMode(false)
+    await fetchStockEntries(stock.ingredient_id)
+  }
+
+  const closeModal = () => {
+    setSelectedStock(null)
+    setEditMode(false)
+    setStockEntries([])
+  }
+
+  const deleteStockEntry = async (entryId) => {
+    if (!confirm('Are you sure you want to delete this stock entry?')) return
+
+    try {
+      const { error } = await supabase
+        .from('stock_ingredients')
+        .delete()
+        .eq('stock_id', entryId)
+
+      if (error) throw error
+
+      alert('Stock entry deleted successfully!')
+      await fetchStockEntries(selectedStock.ingredient_id)
+      await fetchStockLevels()
+    } catch (error) {
+      console.error('Error deleting stock entry:', error)
+      alert(`Error deleting entry: ${error.message}`)
+    }
+  }
+
+  const updateStockEntry = async (entry) => {
+    try {
+      const { error } = await supabase
+        .from('stock_ingredients')
+        .update({
+          container_type: entry.container_type,
+          quantity_containers: entry.quantity_containers,
+          container_size: entry.container_size,
+          container_price: entry.container_price,
+          supplier: entry.supplier,
+          purchase_date: entry.purchase_date
+        })
+        .eq('stock_id', entry.stock_id)
+
+      if (error) throw error
+
+      alert('Stock entry updated successfully!')
+      setEditMode(false)
+      await fetchStockEntries(selectedStock.ingredient_id)
+      await fetchStockLevels()
+    } catch (error) {
+      console.error('Error updating stock entry:', error)
+      alert(`Error updating entry: ${error.message}`)
+    }
+  }
+
+  const groupStockByCategory = () => {
+    const grouped = {}
+    stockLevels.forEach(stock => {
+      const categoryName = stock.ingredients?.categories?.category_name || 'Uncategorized'
+      if (!grouped[categoryName]) {
+        grouped[categoryName] = []
+      }
+      grouped[categoryName].push(stock)
+    })
+    return grouped
+  }
+
   if (loading) {
     return <div className="loading">Loading inventory...</div>
   }
 
+  const groupedStock = groupStockByCategory()
+  const categoryOrder = ['Meats', 'Vegetables', 'Condiments', 'Spices', 'Liquids', 'Staples', 'Seafood', 'Dairy']
+  const orderedCategories = categoryOrder.filter(cat => groupedStock[cat])
+
   return (
     <div className="inventory-management">
       <div className="inventory-header">
-        <h1>Inventory Management</h1>
+        <div>
+          <h1>Inventory Management</h1>
+          <p className="header-subtitle">Track and manage your restaurant ingredients</p>
+        </div>
         <button className="add-stock-btn" onClick={() => setShowAddStock(!showAddStock)}>
-          {showAddStock ? 'Cancel' : '+ Add Stock'}
+          <span className="btn-icon">{showAddStock ? '✕' : '+'}</span>
+          {showAddStock ? 'Cancel' : 'Add Stock'}
         </button>
       </div>
 
       {showAddStock && (
         <div className="add-stock-section">
-          <h2>Add New Stock</h2>
+          <h2>📦 Add New Stock</h2>
           <div className="stock-form">
-            <select
-              value={newStock.ingredient_id}
-              onChange={(e) => setNewStock({ ...newStock, ingredient_id: e.target.value })}
-            >
-              <option value="">Select Ingredient</option>
-              {ingredients.map(ing => (
-                <option key={ing.ingredient_id} value={ing.ingredient_id}>
-                  {ing.ingredient_name} ({ing.unit_of_measurement})
-                </option>
-              ))}
-            </select>
+            <div className="form-group full-width">
+              <label>Ingredient</label>
+              <select
+                value={newStock.ingredient_id}
+                onChange={(e) => setNewStock({ ...newStock, ingredient_id: e.target.value })}
+              >
+                <option value="">Select Ingredient</option>
+                {ingredients.map(ing => (
+                  <option key={ing.ingredient_id} value={ing.ingredient_id}>
+                    {ing.ingredient_name} ({ing.unit_of_measurement}) - {ing.categories?.category_name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            <input
-              type="text"
-              placeholder="Container Type (e.g., bottle, bag, kg)"
-              value={newStock.container_type}
-              onChange={(e) => setNewStock({ ...newStock, container_type: e.target.value })}
-            />
+            {newStock.ingredient_id && (
+              <>
+                {needsContainerType() ? (
+                  <>
+                    <div className="form-group">
+                      <label>Container Type</label>
+                      <input
+                        type="text"
+                        placeholder="e.g., bottle, bag, box"
+                        value={newStock.container_type}
+                        onChange={(e) => setNewStock({ ...newStock, container_type: e.target.value })}
+                      />
+                    </div>
 
-            <input
-              type="number"
-              placeholder="Number of Containers"
-              value={newStock.quantity_containers}
-              onChange={(e) => setNewStock({ ...newStock, quantity_containers: e.target.value })}
-            />
+                    <div className="form-group">
+                      <label>Number of Containers</label>
+                      <input
+                        type="number"
+                        placeholder="e.g., 5"
+                        value={newStock.quantity_containers}
+                        onChange={(e) => setNewStock({ ...newStock, quantity_containers: e.target.value })}
+                      />
+                    </div>
 
-            <input
-              type="number"
-              step="0.01"
-              placeholder="Container Size"
-              value={newStock.container_size}
-              onChange={(e) => setNewStock({ ...newStock, container_size: e.target.value })}
-            />
+                    <div className="form-group">
+                      <label>Size per Container ({getSelectedIngredient()?.unit_of_measurement})</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="e.g., 1.5"
+                        value={newStock.container_size}
+                        onChange={(e) => setNewStock({ ...newStock, container_size: e.target.value })}
+                      />
+                    </div>
 
-            <input
-              type="number"
-              step="0.01"
-              placeholder="Price per Container"
-              value={newStock.container_price}
-              onChange={(e) => setNewStock({ ...newStock, container_price: e.target.value })}
-            />
+                    <div className="form-group">
+                      <label>Price per Container (₱)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="e.g., 150"
+                        value={newStock.container_price}
+                        onChange={(e) => setNewStock({ ...newStock, container_price: e.target.value })}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="form-group">
+                      <label>Quantity (kg)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="e.g., 10"
+                        value={newStock.quantity_containers}
+                        onChange={(e) => setNewStock({ ...newStock, quantity_containers: e.target.value })}
+                      />
+                    </div>
 
-            <input
-              type="text"
-              placeholder="Supplier (Optional)"
-              value={newStock.supplier}
-              onChange={(e) => setNewStock({ ...newStock, supplier: e.target.value })}
-            />
+                    <div className="form-group">
+                      <label>Price per Kilo (₱)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="e.g., 250"
+                        value={newStock.container_price}
+                        onChange={(e) => setNewStock({ ...newStock, container_price: e.target.value })}
+                      />
+                    </div>
+                  </>
+                )}
 
-            <input
-              type="date"
-              value={newStock.purchase_date}
-              onChange={(e) => setNewStock({ ...newStock, purchase_date: e.target.value })}
-            />
+                <div className="form-group">
+                  <label>Supplier (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="Supplier name"
+                    value={newStock.supplier}
+                    onChange={(e) => setNewStock({ ...newStock, supplier: e.target.value })}
+                  />
+                </div>
 
-            <button className="submit-stock-btn" onClick={addStock}>
-              Add Stock Entry
+                <div className="form-group">
+                  <label>Purchase Date</label>
+                  <input
+                    type="date"
+                    value={newStock.purchase_date}
+                    onChange={(e) => setNewStock({ ...newStock, purchase_date: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+
+            <button className="submit-stock-btn full-width" onClick={addStock}>
+              ✓ Add Stock Entry
             </button>
           </div>
 
-          {newStock.container_size && newStock.container_price && (
+          {newStock.container_price && newStock.quantity_containers && (
             <div className="calculation-preview">
-              <p>Unit Price: ₱{(parseFloat(newStock.container_price) / parseFloat(newStock.container_size)).toFixed(4)} per unit</p>
-              {newStock.quantity_containers && (
-                <>
-                  <p>Total Quantity: {parseFloat(newStock.quantity_containers) * parseFloat(newStock.container_size)} units</p>
-                  <p>Total Cost: ₱{(parseFloat(newStock.quantity_containers) * parseFloat(newStock.container_price)).toFixed(2)}</p>
-                </>
-              )}
+              <div className="calc-title">💰 Cost Breakdown</div>
+              <div className="calc-grid">
+                {needsContainerType() ? (
+                  <>
+                    {newStock.container_size && (
+                      <>
+                        <div className="calc-item">
+                          <span className="calc-label">Unit Price:</span>
+                          <span className="calc-value">₱{(parseFloat(newStock.container_price) / parseFloat(newStock.container_size)).toFixed(4)} per {getSelectedIngredient()?.unit_of_measurement}</span>
+                        </div>
+                        <div className="calc-item">
+                          <span className="calc-label">Total Quantity:</span>
+                          <span className="calc-value">{(parseFloat(newStock.quantity_containers) * parseFloat(newStock.container_size)).toFixed(2)} {getSelectedIngredient()?.unit_of_measurement}</span>
+                        </div>
+                        <div className="calc-item highlight">
+                          <span className="calc-label">Total Cost:</span>
+                          <span className="calc-value">₱{(parseFloat(newStock.quantity_containers) * parseFloat(newStock.container_price)).toFixed(2)}</span>
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="calc-item">
+                      <span className="calc-label">Quantity:</span>
+                      <span className="calc-value">{parseFloat(newStock.quantity_containers).toFixed(2)} kg</span>
+                    </div>
+                    <div className="calc-item">
+                      <span className="calc-label">Price per Kg:</span>
+                      <span className="calc-value">₱{parseFloat(newStock.container_price).toFixed(2)}</span>
+                    </div>
+                    <div className="calc-item highlight">
+                      <span className="calc-label">Total Amount:</span>
+                      <span className="calc-value">₱{(parseFloat(newStock.quantity_containers) * parseFloat(newStock.container_price)).toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
       )}
 
       <div className="stock-summary">
-        <h2>Current Stock Levels</h2>
-        <div className="stock-cards">
-          {stockLevels.length === 0 ? (
-            <p className="no-stock">No stock data available</p>
-          ) : (
-            stockLevels.map(stock => (
-              <div key={stock.ingredient_id} className={`stock-card ${getStockStatus(stock.total_stock)}`}>
-                <div className="stock-header">
-                  <h3>{stock.ingredient_name}</h3>
-                  <span className={`stock-badge ${getStockStatus(stock.total_stock)}`}>
-                    {getStockStatus(stock.total_stock) === 'out-of-stock' ? 'Out of Stock' : 
-                     getStockStatus(stock.total_stock) === 'low-stock' ? 'Low Stock' : 'In Stock'}
-                  </span>
+        <h2>📊 Current Stock Levels</h2>
+        
+        {orderedCategories.length === 0 ? (
+          <p className="no-stock">No stock data available</p>
+        ) : (
+          orderedCategories.map(categoryName => (
+            <div key={categoryName} className="category-section">
+              <div className="category-header">
+                <h3>{categoryName}</h3>
+                <span className="item-count">{groupedStock[categoryName].length} items</span>
+              </div>
+              
+              <div className="stock-cards">
+                {groupedStock[categoryName].map(stock => (
+                  <div 
+                    key={stock.ingredient_id} 
+                    className={`stock-card ${getStockStatus(stock.total_stock)}`}
+                    onClick={() => handleStockClick(stock)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="stock-header">
+                      <h4>{stock.ingredient_name}</h4>
+                      <span className={`stock-badge ${getStockStatus(stock.total_stock)}`}>
+                        {getStockStatus(stock.total_stock) === 'out-of-stock' ? '⚠ Out' : 
+                         getStockStatus(stock.total_stock) === 'low-stock' ? '⚡ Low' : '✓ OK'}
+                      </span>
+                    </div>
+                    <div className="stock-details">
+                      <div className="stock-info">
+                        <span className="stock-label">Stock</span>
+                        <span className="stock-value">
+                          {parseFloat(stock.total_stock).toFixed(2)} {stock.unit_of_measurement}
+                        </span>
+                      </div>
+                      <div className="stock-info">
+                        <span className="stock-label">Avg Price</span>
+                        <span className="stock-value">₱{parseFloat(stock.avg_unit_price).toFixed(2)}</span>
+                      </div>
+                      <div className="stock-info">
+                        <span className="stock-label">Entries</span>
+                        <span className="stock-value">{stock.stock_entries}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Stock Details Modal */}
+      {selectedStock && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>{selectedStock.ingredient_name}</h2>
+                <p className="modal-subtitle">
+                  {selectedStock.ingredients?.categories?.category_name} • {selectedStock.unit_of_measurement}
+                </p>
+              </div>
+              <button className="close-btn" onClick={closeModal}>✕</button>
+            </div>
+
+            <div className="modal-body">
+              <div className="summary-cards">
+                <div className="summary-card">
+                  <span className="summary-label">Total Stock</span>
+                  <span className="summary-value">{parseFloat(selectedStock.total_stock).toFixed(2)} {selectedStock.unit_of_measurement}</span>
                 </div>
-                <div className="stock-details">
-                  <div className="stock-info">
-                    <span className="stock-label">Total Stock:</span>
-                    <span className="stock-value">
-                      {parseFloat(stock.total_stock).toFixed(2)} {stock.unit_of_measurement}
-                    </span>
-                  </div>
-                  <div className="stock-info">
-                    <span className="stock-label">Avg Unit Price:</span>
-                    <span className="stock-value">₱{parseFloat(stock.avg_unit_price).toFixed(4)}</span>
-                  </div>
-                  <div className="stock-info">
-                    <span className="stock-label">Stock Entries:</span>
-                    <span className="stock-value">{stock.stock_entries}</span>
-                  </div>
+                <div className="summary-card">
+                  <span className="summary-label">Average Price</span>
+                  <span className="summary-value">₱{parseFloat(selectedStock.avg_unit_price).toFixed(4)}</span>
+                </div>
+                <div className="summary-card">
+                  <span className="summary-label">Total Entries</span>
+                  <span className="summary-value">{selectedStock.stock_entries}</span>
                 </div>
               </div>
-            ))
-          )}
+
+              <div className="entries-section">
+                <div className="entries-header">
+                  <h3>Stock Entries</h3>
+                  <span className="entry-count">{stockEntries.length} entries</span>
+                </div>
+
+                {stockEntries.length === 0 ? (
+                  <p className="no-entries">No stock entries found</p>
+                ) : (
+                  <div className="entries-list">
+                    {stockEntries.map((entry, index) => (
+                      <div key={entry.stock_id} className="entry-card">
+                        {editMode && index === 0 ? (
+                          <EditEntryForm 
+                            entry={entry} 
+                            onSave={updateStockEntry}
+                            onCancel={() => setEditMode(false)}
+                          />
+                        ) : (
+                          <>
+                            <div className="entry-header">
+                              <span className="entry-date">
+                                📅 {new Date(entry.purchase_date).toLocaleDateString()}
+                              </span>
+                              <div className="entry-actions">
+                                {index === 0 && !editMode && (
+                                  <button 
+                                    className="edit-btn-small"
+                                    onClick={() => setEditMode(true)}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                )}
+                                <button 
+                                  className="delete-btn-small"
+                                  onClick={() => deleteStockEntry(entry.stock_id)}
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            </div>
+                            <div className="entry-details">
+                              <div className="entry-row">
+                                <span className="entry-label">Container:</span>
+                                <span className="entry-value">{entry.container_type}</span>
+                              </div>
+                              <div className="entry-row">
+                                <span className="entry-label">Quantity:</span>
+                                <span className="entry-value">{entry.quantity_containers} containers</span>
+                              </div>
+                              <div className="entry-row">
+                                <span className="entry-label">Size:</span>
+                                <span className="entry-value">{entry.container_size} {selectedStock.unit_of_measurement}/container</span>
+                              </div>
+                              <div className="entry-row">
+                                <span className="entry-label">Total:</span>
+                                <span className="entry-value highlight">{entry.total_quantity} {selectedStock.unit_of_measurement}</span>
+                              </div>
+                              <div className="entry-row">
+                                <span className="entry-label">Unit Price:</span>
+                                <span className="entry-value">₱{parseFloat(entry.unit_price).toFixed(4)}</span>
+                              </div>
+                              <div className="entry-row">
+                                <span className="entry-label">Price/Container:</span>
+                                <span className="entry-value">₱{parseFloat(entry.container_price).toFixed(2)}</span>
+                              </div>
+                              {entry.supplier && (
+                                <div className="entry-row">
+                                  <span className="entry-label">Supplier:</span>
+                                  <span className="entry-value">{entry.supplier}</span>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
+
+function EditEntryForm({ entry, onSave, onCancel }) {
+  const [formData, setFormData] = useState({
+    ...entry
+  })
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    onSave(formData)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="edit-entry-form">
+      <div className="edit-form-grid">
+        <div className="edit-form-group">
+          <label>Container Type</label>
+          <input
+            type="text"
+            value={formData.container_type}
+            onChange={(e) => setFormData({ ...formData, container_type: e.target.value })}
+          />
+        </div>
+        <div className="edit-form-group">
+          <label>Quantity</label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.quantity_containers}
+            onChange={(e) => setFormData({ ...formData, quantity_containers: e.target.value })}
+          />
+        </div>
+        <div className="edit-form-group">
+          <label>Container Size</label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.container_size}
+            onChange={(e) => setFormData({ ...formData, container_size: e.target.value })}
+          />
+        </div>
+        <div className="edit-form-group">
+          <label>Price per Container</label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.container_price}
+            onChange={(e) => setFormData({ ...formData, container_price: e.target.value })}
+          />
+        </div>
+        <div className="edit-form-group">
+          <label>Supplier</label>
+          <input
+            type="text"
+            value={formData.supplier || ''}
+            onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
+          />
+        </div>
+        <div className="edit-form-group">
+          <label>Purchase Date</label>
+          <input
+            type="date"
+            value={formData.purchase_date}
+            onChange={(e) => setFormData({ ...formData, purchase_date: e.target.value })}
+          />
+        </div>
+      </div>
+      <div className="edit-form-actions">
+        <button type="submit" className="save-btn">💾 Save Changes</button>
+        <button type="button" onClick={onCancel} className="cancel-btn">Cancel</button>
+      </div>
+    </form>
+  )
+}
+

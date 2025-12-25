@@ -5,7 +5,7 @@ export default function Navigation() {
   return (
     <nav className="navigation">
       <div className="nav-brand">
-        <h2>🍽️ Karindirya</h2>
+        <h1>🍽️ Karindirya</h1>
       </div>
       <ul className="nav-links">
         <li>
