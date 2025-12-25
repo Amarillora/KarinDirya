@@ -8,10 +8,10 @@ export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(true)
 
   const navItems = [
-    { path: '/', icon: '📊', label: 'Dashboard' },
-    { path: '/menu', icon: '🍽️', label: 'Menu' },
-    { path: '/orders', icon: '📋', label: 'Orders' },
-    { path: '/inventory', icon: '📦', label: 'Inventory' }
+    { path: '/', icon: '📊', label: 'DASHBOARD' },
+    { path: '/menu', icon: '🍽️', label: 'MENU' },
+    { path: '/orders', icon: '📋', label: 'ORDERS' },
+    { path: '/inventory', icon: '📦', label: 'INVENTORY' }
   ]
 
   return (

@@ -5,20 +5,20 @@ export default function Navigation() {
   return (
     <nav className="navigation">
       <div className="nav-brand">
-        <h1>🍽️ Karindirya</h1>
+        <h1>🍽️ KARINDIRYA</h1>
       </div>
       <ul className="nav-links">
         <li>
-          <Link to="/">Dashboard</Link>
+          <Link to="/">DASHBOARD</Link>
         </li>
         <li>
-          <Link to="/menu">Menu</Link>
+          <Link to="/menu">MENU</Link>
         </li>
         <li>
-          <Link to="/orders">Orders</Link>
+          <Link to="/orders">ORDERS</Link>
         </li>
         <li>
-          <Link to="/inventory">Inventory</Link>
+          <Link to="/inventory">INVENTORY</Link>
         </li>
       </ul>
     </nav>
