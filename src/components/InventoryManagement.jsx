@@ -20,6 +20,7 @@ export default function InventoryManagement() {
     supplier: '',
     purchase_date: new Date().toISOString().split('T')[0]
   })
+  const [massUnit, setMassUnit] = useState('kg')
 
   useEffect(() => {
     fetchStockLevels()
@@ -149,9 +150,18 @@ export default function InventoryManagement() {
       } else {
         // For meats and vegetables (per kg)
         containerType = 'kg'
-        containerSize = 1 // 1 kg per "container"
-        containerPrice = parseFloat(newStock.container_price) // Price per kg
-        quantityContainers = parseFloat(newStock.quantity_containers) // Number of kg
+        
+        // Convert grams to kg if needed
+        if (massUnit === 'g') {
+          const kgAmount = parseFloat(newStock.quantity_containers) / 1000 // Convert grams to kg
+          quantityContainers = 1 // 1 container
+          containerSize = kgAmount // Size in kg
+          containerPrice = parseFloat(newStock.container_price) * kgAmount // Total cost (price per kg * kg amount)
+        } else {
+          quantityContainers = parseFloat(newStock.quantity_containers) // Number of kg
+          containerSize = 1 // 1 kg per container
+          containerPrice = parseFloat(newStock.container_price) // Price per kg
+        }
       }
       
       console.log('Inserting stock:', {
@@ -185,6 +195,7 @@ export default function InventoryManagement() {
       console.log('Stock added:', data)
       alert('Stock added successfully!')
       setShowAddStock(false)
+      setMassUnit('kg')
       setNewStock({
         ingredient_id: '',
         container_type: '',
@@ -294,6 +305,20 @@ export default function InventoryManagement() {
     return grouped
   }
 
+  const usesMassTerminology = (categoryName) => {
+    return ['Meats', 'Vegetables', 'Staples', 'Seafood'].includes(categoryName)
+  }
+
+  const formatStockDisplay = (stock, unit) => {
+    const stockValue = parseFloat(stock)
+    if (unit === 'kg' && stockValue < 1) {
+      // Convert to grams and display
+      const grams = stockValue * 1000
+      return `${grams.toFixed(2)} g`
+    }
+    return `${stockValue.toFixed(2)} ${unit}`
+  }
+
   if (loading) {
     return <div className="loading">Loading inventory...</div>
   }
@@ -352,6 +377,8 @@ export default function InventoryManagement() {
                       <label>Number of Containers</label>
                       <input
                         type="number"
+                        step="1"
+                        min="0"
                         placeholder="e.g., 5"
                         value={newStock.quantity_containers}
                         onChange={(e) => setNewStock({ ...newStock, quantity_containers: e.target.value })}
@@ -363,6 +390,7 @@ export default function InventoryManagement() {
                       <input
                         type="number"
                         step="0.01"
+                        min="0"
                         placeholder="e.g., 1.5"
                         value={newStock.container_size}
                         onChange={(e) => setNewStock({ ...newStock, container_size: e.target.value })}
@@ -374,6 +402,7 @@ export default function InventoryManagement() {
                       <input
                         type="number"
                         step="0.01"
+                        min="0"
                         placeholder="e.g., 150"
                         value={newStock.container_price}
                         onChange={(e) => setNewStock({ ...newStock, container_price: e.target.value })}
@@ -382,12 +411,24 @@ export default function InventoryManagement() {
                   </>
                 ) : (
                   <>
+                    <div className="form-group full-width">
+                      <label>Unit of Measurement</label>
+                      <select
+                        value={massUnit}
+                        onChange={(e) => setMassUnit(e.target.value)}
+                      >
+                        <option value="kg">Kilograms (kg)</option>
+                        <option value="g">Grams (g)</option>
+                      </select>
+                    </div>
+
                     <div className="form-group">
-                      <label>Quantity (kg)</label>
+                      <label>Quantity ({massUnit})</label>
                       <input
                         type="number"
-                        step="0.01"
-                        placeholder="e.g., 10"
+                        step="1"
+                        min="0"
+                        placeholder={massUnit === 'kg' ? 'e.g., 10' : 'e.g., 500'}
                         value={newStock.quantity_containers}
                         onChange={(e) => setNewStock({ ...newStock, quantity_containers: e.target.value })}
                       />
@@ -397,7 +438,8 @@ export default function InventoryManagement() {
                       <label>Price per Kilo (₱)</label>
                       <input
                         type="number"
-                        step="0.01"
+                        step="1"
+                        min="0"
                         placeholder="e.g., 250"
                         value={newStock.container_price}
                         onChange={(e) => setNewStock({ ...newStock, container_price: e.target.value })}
@@ -442,7 +484,7 @@ export default function InventoryManagement() {
                       <>
                         <div className="calc-item">
                           <span className="calc-label">Unit Price:</span>
-                          <span className="calc-value">₱{(parseFloat(newStock.container_price) / parseFloat(newStock.container_size)).toFixed(4)} per {getSelectedIngredient()?.unit_of_measurement}</span>
+                          <span className="calc-value">₱{(parseFloat(newStock.container_price) / parseFloat(newStock.container_size)).toFixed(2)} per {getSelectedIngredient()?.unit_of_measurement}</span>
                         </div>
                         <div className="calc-item">
                           <span className="calc-label">Total Quantity:</span>
@@ -459,15 +501,21 @@ export default function InventoryManagement() {
                   <>
                     <div className="calc-item">
                       <span className="calc-label">Quantity:</span>
-                      <span className="calc-value">{parseFloat(newStock.quantity_containers).toFixed(2)} kg</span>
+                      <span className="calc-value">{parseFloat(newStock.quantity_containers).toFixed(2)} {massUnit}</span>
                     </div>
                     <div className="calc-item">
                       <span className="calc-label">Price per Kg:</span>
                       <span className="calc-value">₱{parseFloat(newStock.container_price).toFixed(2)}</span>
                     </div>
+                    {massUnit === 'g' && (
+                      <div className="calc-item">
+                        <span className="calc-label">Equivalent in Kg:</span>
+                        <span className="calc-value">{(parseFloat(newStock.quantity_containers) / 1000).toFixed(2)} kg</span>
+                      </div>
+                    )}
                     <div className="calc-item highlight">
                       <span className="calc-label">Total Amount:</span>
-                      <span className="calc-value">₱{(parseFloat(newStock.quantity_containers) * parseFloat(newStock.container_price)).toFixed(2)}</span>
+                      <span className="calc-value">₱{massUnit === 'g' ? ((parseFloat(newStock.quantity_containers) / 1000) * parseFloat(newStock.container_price)).toFixed(2) : (parseFloat(newStock.quantity_containers) * parseFloat(newStock.container_price)).toFixed(2)}</span>
                     </div>
                   </>
                 )}
@@ -509,7 +557,7 @@ export default function InventoryManagement() {
                       <div className="stock-info">
                         <span className="stock-label">Stock</span>
                         <span className="stock-value">
-                          {parseFloat(stock.total_stock).toFixed(2)} {stock.unit_of_measurement}
+                          {formatStockDisplay(stock.total_stock, stock.unit_of_measurement)}
                         </span>
                       </div>
                       <div className="stock-info">
@@ -547,11 +595,11 @@ export default function InventoryManagement() {
               <div className="summary-cards">
                 <div className="summary-card">
                   <span className="summary-label">Total Stock</span>
-                  <span className="summary-value">{parseFloat(selectedStock.total_stock).toFixed(2)} {selectedStock.unit_of_measurement}</span>
+                  <span className="summary-value">{formatStockDisplay(selectedStock.total_stock, selectedStock.unit_of_measurement)}</span>
                 </div>
                 <div className="summary-card">
                   <span className="summary-label">Average Price</span>
-                  <span className="summary-value">₱{parseFloat(selectedStock.avg_unit_price).toFixed(4)}</span>
+                  <span className="summary-value">₱{parseFloat(selectedStock.avg_unit_price).toFixed(2)}</span>
                 </div>
                 <div className="summary-card">
                   <span className="summary-label">Total Entries</span>
@@ -574,6 +622,7 @@ export default function InventoryManagement() {
                         {editMode && index === 0 ? (
                           <EditEntryForm 
                             entry={entry} 
+                            categoryName={selectedStock.ingredients?.categories?.category_name}
                             onSave={updateStockEntry}
                             onCancel={() => setEditMode(false)}
                           />
@@ -601,35 +650,64 @@ export default function InventoryManagement() {
                               </div>
                             </div>
                             <div className="entry-details">
-                              <div className="entry-row">
-                                <span className="entry-label">Container:</span>
-                                <span className="entry-value">{entry.container_type}</span>
-                              </div>
-                              <div className="entry-row">
-                                <span className="entry-label">Quantity:</span>
-                                <span className="entry-value">{entry.quantity_containers} containers</span>
-                              </div>
-                              <div className="entry-row">
-                                <span className="entry-label">Size:</span>
-                                <span className="entry-value">{entry.container_size} {selectedStock.unit_of_measurement}/container</span>
-                              </div>
-                              <div className="entry-row">
-                                <span className="entry-label">Total:</span>
-                                <span className="entry-value highlight">{entry.total_quantity} {selectedStock.unit_of_measurement}</span>
-                              </div>
-                              <div className="entry-row">
-                                <span className="entry-label">Unit Price:</span>
-                                <span className="entry-value">₱{parseFloat(entry.unit_price).toFixed(4)}</span>
-                              </div>
-                              <div className="entry-row">
-                                <span className="entry-label">Price/Container:</span>
-                                <span className="entry-value">₱{parseFloat(entry.container_price).toFixed(2)}</span>
-                              </div>
-                              {entry.supplier && (
-                                <div className="entry-row">
-                                  <span className="entry-label">Supplier:</span>
-                                  <span className="entry-value">{entry.supplier}</span>
-                                </div>
+                              {usesMassTerminology(selectedStock.ingredients?.categories?.category_name) ? (
+                                <>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Mass:</span>
+                                    <span className="entry-value">{entry.container_type}</span>
+                                  </div>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Total:</span>
+                                    <span className="entry-value highlight">{entry.total_quantity} {selectedStock.unit_of_measurement}</span>
+                                  </div>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Unit Price:</span>
+                                    <span className="entry-value">₱{parseFloat(entry.unit_price).toFixed(2)}/{selectedStock.unit_of_measurement}</span>
+                                  </div>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Total Cost:</span>
+                                    <span className="entry-value">₱{(parseFloat(entry.total_quantity) * parseFloat(entry.unit_price)).toFixed(2)}</span>
+                                  </div>
+                                  {entry.supplier && (
+                                    <div className="entry-row">
+                                      <span className="entry-label">Supplier:</span>
+                                      <span className="entry-value">{entry.supplier}</span>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Container:</span>
+                                    <span className="entry-value">{entry.container_type}</span>
+                                  </div>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Quantity:</span>
+                                    <span className="entry-value">{entry.quantity_containers} containers</span>
+                                  </div>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Size:</span>
+                                    <span className="entry-value">{entry.container_size} {selectedStock.unit_of_measurement}/container</span>
+                                  </div>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Total:</span>
+                                    <span className="entry-value highlight">{entry.total_quantity} {selectedStock.unit_of_measurement}</span>
+                                  </div>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Unit Price:</span>
+                                    <span className="entry-value">₱{parseFloat(entry.unit_price).toFixed(2)}</span>
+                                  </div>
+                                  <div className="entry-row">
+                                    <span className="entry-label">Price/Container:</span>
+                                    <span className="entry-value">₱{parseFloat(entry.container_price).toFixed(2)}</span>
+                                  </div>
+                                  {entry.supplier && (
+                                    <div className="entry-row">
+                                      <span className="entry-label">Supplier:</span>
+                                      <span className="entry-value">{entry.supplier}</span>
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </div>
                           </>
@@ -647,10 +725,14 @@ export default function InventoryManagement() {
   )
 }
 
-function EditEntryForm({ entry, onSave, onCancel }) {
+function EditEntryForm({ entry, categoryName, onSave, onCancel }) {
   const [formData, setFormData] = useState({
     ...entry
   })
+
+  const usesMassTerminology = (category) => {
+    return ['Meats', 'Vegetables', 'Staples', 'Seafood'].includes(category)
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -661,7 +743,7 @@ function EditEntryForm({ entry, onSave, onCancel }) {
     <form onSubmit={handleSubmit} className="edit-entry-form">
       <div className="edit-form-grid">
         <div className="edit-form-group">
-          <label>Container Type</label>
+          <label>{usesMassTerminology(categoryName) ? 'Mass' : 'Container Type'}</label>
           <input
             type="text"
             value={formData.container_type}
