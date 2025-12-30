@@ -19,6 +19,64 @@
   border-bottom: 2px solid var(--cream-bg);
 }
 
+.header-actions {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 8px;
+  background: var(--cream-bg);
+  padding: 6px;
+  border-radius: 12px;
+}
+
+.view-toggle button {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  color: var(--charcoal-light);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.view-toggle button.active {
+  background: white;
+  color: var(--bamboo-green);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.refresh-btn {
+  padding: 12px 20px;
+  background: white;
+  color: var(--bamboo-green);
+  border: 2px solid var(--bamboo-green);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.refresh-btn:hover {
+  background: var(--bamboo-green);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(133, 187, 101, 0.3);
+}
+
+.refresh-btn:active {
+  transform: scale(0.95);
+}
+
 .inventory-header h1 {
   margin: 0 0 8px 0;
   font-family: 'Playfair Display', serif;
@@ -762,4 +820,178 @@
 
 .cancel-btn:hover {
   background: #e5e5e5;
+}
+/* Transaction History Section */
+.transactions-section {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  animation: fadeSlideIn 0.3s ease-out;
+}
+
+.transactions-section h2 {
+  margin: 0 0 24px 0;
+  font-family: 'Playfair Display', serif;
+  color: var(--charcoal);
+  font-size: 28px;
+}
+
+.transactions-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.transaction-header {
+  display: grid;
+  grid-template-columns: 140px 180px 120px 120px 100px 100px 1fr;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--cream-bg);
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--charcoal);
+}
+
+.transaction-row {
+  display: grid;
+  grid-template-columns: 140px 180px 120px 120px 100px 100px 1fr;
+  gap: 16px;
+  padding: 16px 20px;
+  background: white;
+  border: 1px solid var(--cream-bg);
+  border-radius: 10px;
+  align-items: center;
+  transition: all 0.2s ease;
+  animation: slideIn 0.3s ease-out;
+}
+
+.transaction-row:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  border-color: var(--bamboo-green);
+}
+
+.transaction-row.deduction {
+  border-left: 4px solid #e74c3c;
+}
+
+.transaction-row.purchase {
+  border-left: 4px solid var(--bamboo-green);
+}
+
+.trans-date {
+  color: var(--charcoal-light);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.trans-ingredient {
+  font-weight: 600;
+  color: var(--charcoal);
+}
+
+.trans-type {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  display: inline-block;
+}
+
+.trans-type.deduction {
+  background: #ffe5e5;
+  color: #c0392b;
+}
+
+.trans-type.purchase {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.trans-change {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.trans-change.negative {
+  color: #e74c3c;
+}
+
+.trans-change.positive {
+  color: var(--bamboo-green);
+}
+
+.trans-before,
+.trans-after {
+  color: var(--charcoal-light);
+  font-size: 13px;
+}
+
+.trans-ref {
+  color: var(--charcoal-light);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.no-transactions {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--charcoal-light);
+  font-style: italic;
+}
+
+.see-more-container {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+  margin-top: 20px;
+}
+
+.see-more-btn {
+  padding: 12px 32px;
+  background: white;
+  color: var(--bamboo-green);
+  border: 2px solid var(--bamboo-green);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+.see-more-btn:hover {
+  background: var(--bamboo-green);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(133, 187, 101, 0.3);
+}
+
+.see-more-btn:active {
+  transform: scale(0.95);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 1200px) {
+  .transaction-header,
+  .transaction-row {
+    grid-template-columns: 120px 150px 110px 100px 90px 90px 1fr;
+    font-size: 12px;
+  }
 }

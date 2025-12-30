@@ -11,6 +11,9 @@ export default function InventoryManagement() {
   const [selectedStock, setSelectedStock] = useState(null)
   const [editMode, setEditMode] = useState(false)
   const [stockEntries, setStockEntries] = useState([])
+  const [transactions, setTransactions] = useState([])
+  const [viewMode, setViewMode] = useState('stock') // 'stock' or 'transactions'
+  const [transactionLimit, setTransactionLimit] = useState(10)
   const [newStock, setNewStock] = useState({
     ingredient_id: '',
     container_type: '',
@@ -26,7 +29,51 @@ export default function InventoryManagement() {
     fetchStockLevels()
     fetchIngredients()
     fetchCategories()
+    fetchTransactions()
   }, [])
+
+  // Refresh stock levels when switching back to stock view
+  useEffect(() => {
+    if (viewMode === 'stock') {
+      fetchStockLevels()
+    } else if (viewMode === 'transactions') {
+      fetchTransactions()
+    }
+  }, [viewMode])
+
+  // Auto-refresh when page becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchStockLevels()
+        fetchTransactions()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
+  const fetchTransactions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('stock_transactions')
+        .select(`
+          *,
+          ingredients (
+            ingredient_name,
+            unit_of_measurement
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(transactionLimit)
+
+      if (error) throw error
+      setTransactions(data || [])
+    } catch (error) {
+      console.error('Error fetching transactions:', error)
+    }
+  }
 
   const fetchCategories = async () => {
     try {
@@ -119,8 +166,8 @@ export default function InventoryManagement() {
 
   const needsContainerType = () => {
     const category = getSelectedCategory()
-    // Meats and Vegetables don't need container type
-    return !['Meats', 'Vegetables'].includes(category)
+    // Meats, Vegetables, and Seafood don't need container type
+    return !['Meats', 'Vegetables', 'Seafood'].includes(category)
   }
 
   const addStock = async () => {
@@ -314,9 +361,12 @@ export default function InventoryManagement() {
     if (unit === 'kg' && stockValue < 1) {
       // Convert to grams and display
       const grams = stockValue * 1000
-      return `${grams.toFixed(2)} g`
+      // Remove trailing zeros using regex
+      return `${grams.toFixed(3).replace(/\.?0+$/, '')} g`
     }
-    return `${stockValue.toFixed(2)} ${unit}`
+    // Remove trailing zeros while keeping precision using regex
+    // This preserves decimals like 9.9, 9.85, etc.
+    return `${stockValue.toFixed(3).replace(/\.?0+$/, '')} ${unit}`
   }
 
   if (loading) {
@@ -334,11 +384,87 @@ export default function InventoryManagement() {
           <h1>Inventory Management</h1>
           <p className="header-subtitle">Track and manage your restaurant ingredients</p>
         </div>
-        <button className="add-stock-btn" onClick={() => setShowAddStock(!showAddStock)}>
-          <span className="btn-icon">{showAddStock ? '✕' : '+'}</span>
-          {showAddStock ? 'Cancel' : 'Add Stock'}
-        </button>
+        <div className="header-actions">
+          <div className="view-toggle">
+            <button 
+              className={viewMode === 'stock' ? 'active' : ''}
+              onClick={() => setViewMode('stock')}
+            >
+              📦 Stock Levels
+            </button>
+            <button 
+              className={viewMode === 'transactions' ? 'active' : ''}
+              onClick={() => setViewMode('transactions')}
+            >
+              📊 Transaction History
+            </button>
+          </div>
+          <button className="add-stock-btn" onClick={() => setShowAddStock(!showAddStock)}>
+            <span className="btn-icon">{showAddStock ? '✕' : '+'}</span>
+            {showAddStock ? 'Cancel' : 'Add Stock'}
+          </button>
+        </div>
       </div>
+
+      {viewMode === 'transactions' ? (
+        <div className="transactions-section">
+          <h2>Stock Transaction History</h2>
+          <div className="transactions-table">
+            <div className="transaction-header">
+              <span>Date & Time</span>
+              <span>Ingredient</span>
+              <span>Type</span>
+              <span>Change</span>
+              <span>Before</span>
+              <span>After</span>
+              <span>Reference</span>
+            </div>
+            {transactions.length === 0 ? (
+              <p className="no-transactions">No transactions recorded yet</p>
+            ) : (
+              <>
+                {transactions.map(trans => (
+                  <div key={trans.transaction_id} className={`transaction-row ${trans.transaction_type}`}>
+                    <span className="trans-date">
+                      {new Date(trans.created_at).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
+                    <span className="trans-ingredient">{trans.ingredients?.ingredient_name}</span>
+                    <span className={`trans-type ${trans.transaction_type}`}>
+                      {trans.transaction_type === 'deduction' ? '📉 Deduction' : 
+                       trans.transaction_type === 'purchase' ? '📈 Purchase' : 
+                       '⚙️ Adjustment'}
+                    </span>
+                    <span className={`trans-change ${parseFloat(trans.quantity_change) < 0 ? 'negative' : 'positive'}`}>
+                      {parseFloat(trans.quantity_change) > 0 ? '+' : ''}{parseFloat(parseFloat(trans.quantity_change).toFixed(3))} {trans.unit_of_measurement}
+                    </span>
+                    <span className="trans-before">{parseFloat(parseFloat(trans.quantity_before).toFixed(3))} {trans.unit_of_measurement}</span>
+                    <span className="trans-after">{parseFloat(parseFloat(trans.quantity_after).toFixed(3))} {trans.unit_of_measurement}</span>
+                    <span className="trans-ref">
+                      {trans.order_number ? `Order: ${trans.order_number}` : trans.reference_type || '-'}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+          {transactions.length >= transactionLimit && (
+            <div className="see-more-container">
+              <button 
+                className="see-more-btn" 
+                onClick={() => setTransactionLimit(prev => prev + 10)}
+              >
+                See More
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
 
       {showAddStock && (
         <div className="add-stock-section">
@@ -658,7 +784,7 @@ export default function InventoryManagement() {
                                   </div>
                                   <div className="entry-row">
                                     <span className="entry-label">Total:</span>
-                                    <span className="entry-value highlight">{entry.total_quantity} {selectedStock.unit_of_measurement}</span>
+                                    <span className="entry-value highlight">{formatStockDisplay(entry.total_quantity, selectedStock.unit_of_measurement)}</span>
                                   </div>
                                   <div className="entry-row">
                                     <span className="entry-label">Unit Price:</span>
@@ -683,15 +809,15 @@ export default function InventoryManagement() {
                                   </div>
                                   <div className="entry-row">
                                     <span className="entry-label">Quantity:</span>
-                                    <span className="entry-value">{entry.quantity_containers} containers</span>
+                                    <span className="entry-value">{parseFloat(parseFloat(entry.quantity_containers).toFixed(3))} containers</span>
                                   </div>
                                   <div className="entry-row">
                                     <span className="entry-label">Size:</span>
-                                    <span className="entry-value">{entry.container_size} {selectedStock.unit_of_measurement}/container</span>
+                                    <span className="entry-value">{parseFloat(parseFloat(entry.container_size).toFixed(3))} {selectedStock.unit_of_measurement}/container</span>
                                   </div>
                                   <div className="entry-row">
                                     <span className="entry-label">Total:</span>
-                                    <span className="entry-value highlight">{entry.total_quantity} {selectedStock.unit_of_measurement}</span>
+                                    <span className="entry-value highlight">{formatStockDisplay(entry.total_quantity, selectedStock.unit_of_measurement)}</span>
                                   </div>
                                   <div className="entry-row">
                                     <span className="entry-label">Unit Price:</span>
@@ -720,6 +846,8 @@ export default function InventoryManagement() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )
