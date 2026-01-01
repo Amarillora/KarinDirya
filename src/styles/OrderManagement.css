@@ -527,18 +527,27 @@
 }
 
 .remove-item-btn {
-  background: none;
-  border: none;
-  color: var(--clay-red);
+  background: linear-gradient(135deg, var(--clay-red), #DC143C);
+  border: 2px solid var(--clay-red);
+  color: white;
   cursor: pointer;
-  font-size: 24px;
-  transition: all 0.2s ease;
-  padding: 4px;
+  font-size: 18px;
+  transition: all 0.3s ease;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(205, 92, 92, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
 }
 
 .remove-item-btn:hover {
-  transform: scale(1.3) rotate(90deg);
-  color: #DC143C;
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 12px rgba(205, 92, 92, 0.5);
+  background: linear-gradient(135deg, #DC143C, var(--clay-red));
 }
 
 .order-total {

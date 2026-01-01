@@ -8,6 +8,7 @@ export default function MenuList() {
   const [filter, setFilter] = useState('all')
   const [selectedMenu, setSelectedMenu] = useState(null)
   const [ingredients, setIngredients] = useState([])
+  const [uploadingImageFor, setUploadingImageFor] = useState(null)
 
   useEffect(() => {
     fetchMenuItems()
@@ -86,6 +87,65 @@ export default function MenuList() {
     }
   }
 
+  const handleImageUpload = async (event, menuId, menuName) => {
+    event.stopPropagation()
+    const file = event.target.files[0]
+    if (!file) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file')
+      return
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size should be less than 5MB')
+      return
+    }
+
+    setUploadingImageFor(menuId)
+
+    try {
+      // Create a unique file name
+      const fileExt = file.name.split('.').pop()
+      const fileName = `menu-${menuId}-${Date.now()}.${fileExt}`
+      const filePath = `menu-images/${fileName}`
+
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('menu-images')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) throw uploadError
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('menu-images')
+        .getPublicUrl(filePath)
+
+      // Update the database with the new image URL
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ image_url: publicUrl })
+        .eq('menu_id', menuId)
+
+      if (updateError) throw updateError
+
+      // Refresh the menu items
+      await fetchMenuItems()
+      alert('Image uploaded successfully!')
+    } catch (error) {
+      console.error('Error uploading image:', error)
+      alert('Failed to upload image: ' + error.message)
+    } finally {
+      setUploadingImageFor(null)
+    }
+  }
+
   const filteredItems = filter === 'all' 
     ? menuItems 
     : menuItems.filter(item => item.category?.toLowerCase() === filter)
@@ -132,6 +192,16 @@ export default function MenuList() {
               <span className={`availability-badge ${item.is_available ? 'available' : 'unavailable'}`}>
                 {item.is_available ? 'Available' : 'Unavailable'}
               </span>
+              <label className="upload-image-btn" onClick={(e) => e.stopPropagation()}>
+                {uploadingImageFor === item.menu_id ? '📤 Uploading...' : '📷 Upload Image'}
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={(e) => handleImageUpload(e, item.menu_id, item.menu_name)}
+                  disabled={uploadingImageFor === item.menu_id}
+                  style={{ display: 'none' }}
+                />
+              </label>
             </div>
             <div className="menu-details">
               <h3>{item.menu_name}</h3>
